@@ -1,0 +1,44 @@
+name: Validate Ludo Club
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci && npm test
+        working-directory: backend
+      - run: |
+          docker run -d --name ludo-test -p 27017:27017 mongo:7 --replSet ludo --bind_ip_all
+          for attempt in $(seq 1 30); do
+            docker exec ludo-test mongosh --quiet --eval 'db.adminCommand("ping").ok' && break
+            sleep 1
+          done
+          docker exec ludo-test mongosh --quiet --eval 'rs.initiate({_id:"ludo",members:[{_id:0,host:"127.0.0.1:27017"}]})'
+      - run: npm run test:integration
+        working-directory: backend
+        env:
+          TEST_MONGODB_URI: mongodb://127.0.0.1:27017/ludo_test?replicaSet=ludo
+  flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: bash scripts/bootstrap-flutter.sh
+      - run: flutter build apk --debug --dart-define=API_URL=http://10.0.2.2:3107
+        working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ludo-club-debug-apk
+          path: frontend/build/app/outputs/flutter-apk/app-debug.apk

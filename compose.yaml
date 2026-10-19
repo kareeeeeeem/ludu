@@ -1,0 +1,34 @@
+services:
+  mongo:
+    image: mongo:7
+    command: ["mongod", "--replSet", "ludo", "--bind_ip_all"]
+    volumes:
+      - ludo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  mongo-init:
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - ./scripts/init-mongo.js:/init-mongo.js:ro
+    command: ["mongosh", "--host", "mongo", "--file", "/init-mongo.js"]
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/ludo_club?replicaSet=ludo
+      PORT: 3000
+      HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:3107:3000"
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+volumes:
+  ludo-data:

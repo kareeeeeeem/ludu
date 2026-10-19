@@ -1,0 +1,419 @@
+openapi: 3.1.0
+info:
+  title: Ludo Club platform integration
+  version: 1.0.0
+  description: >-
+    Implemented integration endpoints. Positive point tiers require an explicitly
+    approved versioned policy and game configuration. Test-only policies are rejected
+    in production. The actual host platform remains an external integration dependency.
+servers:
+  - url: http://127.0.0.1:3108
+    description: Local development only
+security:
+  - gameSession: []
+paths:
+  /api/v1/platform/session/exchange:
+    post:
+      security: []
+      summary: Exchange a one-time platform launch authorization for a scoped game JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sessionToken]
+              properties:
+                sessionToken: { type: string, minLength: 1, maxLength: 4096 }
+            example: { sessionToken: "one-time-platform-code" }
+      responses:
+        '200':
+          description: Game session issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, expiresIn, user]
+                properties:
+                  token: { type: string }
+                  expiresIn: { type: integer, const: 3600 }
+                  user: { $ref: '#/components/schemas/Player' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: Launch ID already exchanged }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/v1/game/health:
+    get:
+      security: []
+      summary: Process health
+      responses:
+        '200':
+          description: Running
+          content:
+            application/json:
+              example: { ok: true, gameId: ludo-club, apiVersion: '1' }
+  /api/v1/game/ready:
+    get:
+      security: []
+      summary: Database and game availability
+      responses:
+        '200': { description: Ready }
+        '503': { description: Database unavailable or game disabled }
+  /api/v1/game/integration-status:
+    get:
+      security: []
+      summary: Capability status without secrets
+      responses:
+        '200':
+          description: Integration capabilities
+          content:
+            application/json:
+              example: { platformMode: true, mock: false, sessionExchange: true, pointsBalance: true, paidMatches: true, cosmeticBilling: true, gameEnabled: true }
+  /api/v1/game/me:
+    get:
+      summary: Verified player profile and authoritative platform balance
+      responses:
+        '200':
+          description: Player and current point balance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerWithBalance' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/v1/game/catalog-info:
+    get:
+      summary: Host game catalog metadata
+      responses:
+        '200':
+          description: Metadata
+          content:
+            application/json:
+              example: { gameId: ludo-club, name: Ludo Club, version: '1', enabled: true, capacities: [2, 4], multiplayer: true, practice: true }
+  /api/v1/game/modes:
+    get:
+      summary: Playable and unavailable modes
+      responses:
+        '200':
+          description: Mode status; positive point tiers are unavailable pending contract
+          content:
+            application/json:
+              example:
+                modes:
+                  - { id: classic, available: true, capacities: [2, 4] }
+                  - { id: practice, available: true, capacities: [2, 4], entryPoints: 0 }
+                  - { id: magic, available: false, reason: Rules pending platform approval }
+                  - { id: fast, available: false, reason: Rules pending platform approval }
+                entryTiers: [{ points: 0, available: true }]
+  /api/v1/game/launch/validate:
+    post:
+      summary: Validate the current scoped game session
+      responses:
+        '200':
+          description: Validated
+          content:
+            application/json:
+              example: { valid: true, gameId: ludo-club }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/game/session/end:
+    post:
+      summary: Revoke this launch and disconnect its game sockets
+      responses:
+        '200':
+          description: Ended
+          content:
+            application/json:
+              example: { ended: true }
+  /api/v1/platform/admin/config:
+    get:
+      security: [{ platformService: [] }]
+      summary: Read game-specific configuration
+      responses:
+        '200': { description: Game configuration }
+        '403': { description: Platform service credential required }
+    put:
+      security: [{ platformService: [] }]
+      summary: Set maintenance, enabled modes, tiers, and cosmetic availability
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GameConfigUpdate' }
+            example:
+              gameEnabled: true
+              maintenanceMessage: ''
+              enabledModes: [classic, practice]
+              matchTiers: [0]
+              cosmeticAvailability: { dice_gold: true }
+              reason: Approved platform configuration
+      responses:
+        '200': { description: Persisted and audited }
+        '403': { description: Platform service credential required }
+  /api/v1/platform/admin/finance:
+    get:
+      security: [{ platformService: [] }]
+      summary: List up to 100 pending or manual-review platform-funded matches
+      responses:
+        '200': { description: Match funding states and immutable references }
+        '403': { description: Platform service credential required }
+  /api/v1/platform/admin/finance/{id}/reconcile:
+    post:
+      security: [{ platformService: [] }]
+      summary: Retry a pending match operation using its stable idempotency key
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }
+      responses:
+        '200': { description: Current game and finance state }
+        '403': { description: Platform service credential required }
+        '409': { description: Manual review requires external operator decision }
+  /api/v1/platform/admin/matches/{id}/cancel:
+    post:
+      security: [{ platformService: [] }]
+      summary: Cancel an unfinished platform-funded match under its approved policy
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, pattern: '^[a-f0-9]{24}$' } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 5, maxLength: 500 }
+      responses:
+        '200': { description: Current match; financial settlement or release may remain pending }
+        '403': { description: Platform service credential required }
+        '404': { description: Match unavailable }
+  /api/shop/catalog:
+    get:
+      summary: Server catalog with platform point prices and availability
+      responses:
+        '200': { description: Cosmetic catalog }
+  /api/shop/buy:
+    post:
+      summary: Purchase a cosmetic through the platform adapter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [itemId, requestId]
+              properties:
+                itemId: { type: string }
+                requestId: { type: string, format: uuid }
+            example: { itemId: dice_gold, requestId: 149b0475-f4e3-4eb6-9b3e-3c61ca601790 }
+      responses:
+        '200': { description: Platform confirmed debit and ownership recorded }
+        '202': { description: Platform status ambiguous; purchase remains pending }
+        '402': { description: Platform declined purchase, including insufficient points }
+        '409': { description: Item owned or another purchase pending }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/shop/purchases/{requestId}/status:
+    get:
+      summary: Reconcile an unresolved cosmetic transaction
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: PENDING, COMMITTED, or DECLINED
+          content:
+            application/json:
+              example: { status: COMMITTED, requestId: 149b0475-f4e3-4eb6-9b3e-3c61ca601790, itemId: dice_gold }
+  /api/inventory/equip:
+    post:
+      summary: Equip a server-owned cosmetic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category, itemId]
+              properties:
+                category: { type: string, enum: [dice, token, board, frame] }
+                itemId: { type: string }
+      responses:
+        '200': { description: Updated game profile }
+        '403': { description: Item not owned }
+        '400': { description: Item does not belong to the requested category }
+  /api/rooms/create:
+    post:
+      summary: Create a Classic room; positive entry requires an approved policy/tier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomInput' }
+            example: { capacity: 2, stakeMinor: 0 }
+      responses:
+        '201': { description: Waiting room with code and host seat }
+        '503': { description: Approved match policy unavailable }
+        '403': { description: Requested points/capacity tier is not approved or enabled }
+  /api/rooms/join:
+    post:
+      summary: Join a waiting private room by its ten-character code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, pattern: '^[A-Fa-f0-9]{10}$' }
+      responses:
+        '200': { description: Updated room }
+        '404': { description: Room unavailable }
+  /api/games/practice:
+    post:
+      summary: Create a free 2- or 4-player game with bots
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PracticeInput' }
+      responses:
+        '201': { description: Active bot game }
+  /api/matchmaking/queue:
+    post:
+      summary: Join Classic matchmaking; reservation begins only after a full match is formed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoomInput' }
+      responses:
+        '200': { description: Queue state or matched game }
+        '503': { description: Approved match policy unavailable }
+    delete:
+      summary: Leave matchmaking queue
+      responses:
+        '200': { description: Updated queue state }
+  /api/matchmaking/status:
+    get:
+      summary: Current queue status and matched game ID
+      responses:
+        '200': { description: Queue status }
+  /api/games/{id}/start:
+    post:
+      summary: Host starts a full private room
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Active authoritative game state }
+        '403': { description: Only the host can start }
+  /api/games/{id}/leave:
+    post:
+      summary: Leave a waiting room; host departure cancels it
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Updated or cancelled room }
+  /api/games/{id}/action:
+    post:
+      summary: Send an authoritative roll, move or forfeit with current revision
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, revision]
+              properties:
+                type: { type: string, enum: [roll, move, forfeit] }
+                token: { type: integer, minimum: 0, maximum: 3 }
+                revision: { type: integer, minimum: 0 }
+            example: { type: move, token: 0, revision: 3 }
+      responses:
+        '200': { description: New game state and legal moves }
+        '409': { description: Stale revision, invalid turn or illegal move }
+  /api/stats/user:
+    get:
+      summary: Authenticated player statistics and win rate
+      responses:
+        '200': { description: Verified game profile statistics }
+  /api/stats/leaderboard:
+    get:
+      summary: Paginated rankings from real completed non-practice matches
+      parameters:
+        - { name: period, in: query, schema: { type: string, enum: [all, week, month], default: all } }
+        - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        '200': { description: Up to 100 ranked players in requested page }
+components:
+  securitySchemes:
+    gameSession:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: One-hour JWT scoped to a verified, revocable platform launch
+    platformService:
+      type: http
+      scheme: bearer
+      description: Server-only PLATFORM_ADMIN_API_KEY; never expose in Flutter
+  responses:
+    Unauthorized:
+      description: Missing, invalid, expired, revoked, or replayed credential
+      content:
+        application/json:
+          example: { error: Platform launch session expired }
+    Unavailable:
+      description: Platform service unavailable or financial contract not enabled
+      content:
+        application/json:
+          example: { error: Platform API unavailable }
+  schemas:
+    RoomInput:
+      type: object
+      additionalProperties: false
+      required: [capacity]
+      properties:
+        capacity: { type: integer, enum: [2, 4] }
+        stakeMinor: { type: integer, minimum: 0, default: 0, description: Platform points in platform mode; legacy minor currency units only outside platform mode }
+    PracticeInput:
+      type: object
+      additionalProperties: false
+      required: [capacity]
+      properties:
+        capacity: { type: integer, enum: [2, 4] }
+        stakeMinor: { type: integer, const: 0, default: 0 }
+    Player:
+      type: object
+      required: [id, displayName, platformPlayer, inventory, equipped]
+      properties:
+        id: { type: string, description: Opaque Ludo profile ID }
+        displayName: { type: string }
+        avatar: { type: string }
+        platformPlayer: { type: boolean, const: true }
+        inventory: { type: array, items: { type: string } }
+        equipped: { type: object, additionalProperties: { type: string } }
+        games: { type: integer }
+        wins: { type: integer }
+        losses: { type: integer }
+    PlayerWithBalance:
+      allOf:
+        - { $ref: '#/components/schemas/Player' }
+        - type: object
+          required: [points, currency, available]
+          properties:
+            points: { type: integer, minimum: 0 }
+            currency: { type: string, const: PLATFORM_POINTS }
+            available: { type: boolean }
+    GameConfigUpdate:
+      type: object
+      additionalProperties: false
+      required: [gameEnabled, maintenanceMessage, enabledModes, matchTiers, cosmeticAvailability, reason]
+      properties:
+        gameEnabled: { type: boolean }
+        maintenanceMessage: { type: string, maxLength: 200 }
+        enabledModes: { type: array, minItems: 1, items: { type: string, enum: [classic, practice] } }
+        matchTiers: { type: array, minItems: 1, items: { type: integer, minimum: 0 } }
+        cosmeticAvailability: { type: object, additionalProperties: { type: boolean } }
+        reason: { type: string, minLength: 5, maxLength: 500 }

@@ -1,0 +1,23 @@
+node_modules/
+.env
+.dart_tool/
+build/
+.flutter-plugins-dependencies
+android/local.properties
+*.log
+data/
+*.jks
+key.properties
+delivery/ADMIN_CREDENTIALS.txt
+
+# Build artifacts
+*.apk
+*.aab
+*.zip
+repomix-output.xml
+**/build/
+**/node_modules/
+**/.dart_tool/
+.env
+.env.*
+!.env.example

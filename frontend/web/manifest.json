@@ -1,0 +1,12 @@
+{
+    "name": "Ludo Club",
+    "short_name": "Ludo Club",
+    "start_url": ".",
+    "display": "browser",
+    "background_color": "#B9EEFF",
+    "theme_color": "#FFBD4A",
+    "description": "Bright multiplayer Ludo inside your gaming platform.",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false,
+    "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

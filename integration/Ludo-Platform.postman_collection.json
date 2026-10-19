@@ -1,0 +1,49 @@
+{
+  "info": {
+    "name": "Ludo Club platform boundary (local mock)",
+    "description": "Start scripts/dev-platform.sh. POST /mock/launch to obtain a one-time launch code, then exchange it. Variables contain development values only. Positive-point requests require PLATFORM_MATCH_POLICY_JSON plus an enabled tier; TEST-ONLY policy is valid only in local development and production requires approved policy.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "gameUrl", "value": "http://127.0.0.1:3108" },
+    { "key": "mockUrl", "value": "http://127.0.0.1:3110" },
+    { "key": "launchCode", "value": "" },
+    { "key": "gameToken", "value": "" },
+    { "key": "purchaseId", "value": "" },
+    { "key": "secondPlayerToken", "value": "" },
+    { "key": "platformAdminKey", "value": "" },
+    { "key": "gameId", "value": "" },
+    { "key": "roomCode", "value": "" },
+    { "key": "revision", "value": "0" }
+  ],
+  "item": [
+    {
+      "name": "1. Mock platform launch",
+      "event": [{ "listen": "test", "script": { "exec": ["const url = pm.response.json().url;", "pm.collectionVariables.set('launchCode', decodeURIComponent(new URL(url).hash.slice(9)));"], "type": "text/javascript" } }],
+      "request": { "method": "POST", "url": "{{mockUrl}}/mock/launch" }
+    },
+    {
+      "name": "2. Exchange launch code",
+      "event": [{ "listen": "test", "script": { "exec": ["pm.collectionVariables.set('gameToken', pm.response.json().token);"], "type": "text/javascript" } }],
+      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"sessionToken\":\"{{launchCode}}\"}" }, "url": "{{gameUrl}}/api/v1/platform/session/exchange" }
+    },
+    { "name": "3. Verified player and points", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{gameToken}}" }], "url": "{{gameUrl}}/api/v1/game/me" } },
+    { "name": "4. Available modes", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{gameToken}}" }], "url": "{{gameUrl}}/api/v1/game/modes" } },
+    { "name": "5. Cosmetic catalog", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{gameToken}}" }], "url": "{{gameUrl}}/api/shop/catalog" } },
+    {
+      "name": "6. Purchase approved cosmetic",
+      "event": [{ "listen": "prerequest", "script": { "exec": ["if (!pm.collectionVariables.get('purchaseId')) pm.collectionVariables.set('purchaseId', pm.variables.replaceIn('{{$guid}}'));"], "type": "text/javascript" } }],
+      "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{gameToken}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"itemId\":\"dice_gold\",\"requestId\":\"{{purchaseId}}\"}" }, "url": "{{gameUrl}}/api/shop/buy" }
+    },
+    { "name": "7. Reconcile purchase", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{gameToken}}" }], "url": "{{gameUrl}}/api/shop/purchases/{{purchaseId}}/status" } },
+    { "name": "8. Equip purchased cosmetic", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{gameToken}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"category\":\"dice\",\"itemId\":\"dice_gold\"}" }, "url": "{{gameUrl}}/api/inventory/equip" } },
+    { "name": "9. Create paid private room (approved tier only)", "event": [{ "listen": "test", "script": { "exec": ["pm.collectionVariables.set('gameId', pm.response.json().id);", "pm.collectionVariables.set('roomCode', pm.response.json().code);"], "type": "text/javascript" } }], "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{gameToken}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"capacity\":2,\"stakeMinor\":10}" }, "url": "{{gameUrl}}/api/rooms/create" } },
+    { "name": "10. Second player joins room", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{secondPlayerToken}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"code\":\"{{roomCode}}\"}" }, "url": "{{gameUrl}}/api/rooms/join" } },
+    { "name": "11. Start funded match", "event": [{ "listen": "test", "script": { "exec": ["if (pm.response.json().state) pm.collectionVariables.set('revision', pm.response.json().state.revision);"], "type": "text/javascript" } }], "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{gameToken}}" }], "url": "{{gameUrl}}/api/games/{{gameId}}/start" } },
+    { "name": "12. Inspect funding or settlement status", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{gameToken}}" }], "url": "{{gameUrl}}/api/games/{{gameId}}" } },
+    { "name": "13. Pending match finances (service only)", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{platformAdminKey}}" }], "url": "{{gameUrl}}/api/v1/platform/admin/finance" } },
+    { "name": "14. Reconcile pending match (service only)", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{platformAdminKey}}" }], "url": "{{gameUrl}}/api/v1/platform/admin/finance/{{gameId}}/reconcile" } },
+    { "name": "15. Cancel match (service only)", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{platformAdminKey}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"reason\":\"Verified incident cancellation\"}" }, "url": "{{gameUrl}}/api/v1/platform/admin/matches/{{gameId}}/cancel" } },
+    { "name": "16. End game session", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{gameToken}}" }], "url": "{{gameUrl}}/api/v1/game/session/end" } }
+  ]
+}

@@ -1,0 +1,7 @@
+# Artwork and security handoff
+
+The actual source reference directory is `photos/` (seven JPEG reference sheets); `photots/` does not exist. Their inventory is in `ASSET_INVENTORY.md`. The sheets have opaque backgrounds and possible third-party logos. They are excluded from this package and no individual cutout is represented as licensed production artwork. The Flutter hero is an original generated illustration; the board, dice and token surfaces are code drawn. The platform owner should verify rights for any new themed collectible art before distribution.
+
+Flutter receives only a short-lived one-time launch code. The game backend verifies it with the host server and signs a revocable, launch-scoped game session. The backend owns dice and move authority. The host platform owns all point balances and point transactions. All outbound financial operations carry stable idempotency references; ambiguous cosmetic purchases remain pending and are reconciled by reference. Do not put platform service keys in Flutter builds. Replace local HTTP, localhost CORS and mock fixtures with approved HTTPS, WSS, origin policy, key rotation, rate policy, monitoring and real platform API validation before production.
+
+No historical Mongo collections or legacy financial records are deleted automatically. Migrate and archive them under the platform owner's retention policy; the current platform runtime blocks legacy player finance routes.
